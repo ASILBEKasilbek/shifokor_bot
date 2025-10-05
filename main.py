@@ -1,14 +1,15 @@
-# main.py
 import asyncio
 import logging
+import os
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from user_handlers import setup_user_handlers
 from admin_handlers import setup_admin_handlers
+from database import init_db   # ⬅️ qo‘shdik
 from dotenv import load_dotenv
-import os
+
 load_dotenv()
 
 # Konfiguratsiya
@@ -24,9 +25,13 @@ storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
 async def main():
+    # Bazani init qilish
+    await init_db()   # ⬅️ faqat shu yerda chaqiramiz
+
     # Handlerlarni ro'yxatdan o'tkazish
     setup_user_handlers(dp, bot, ADMIN_ID)
     setup_admin_handlers(dp, bot, ADMIN_ID)
+
     await dp.start_polling(bot)
 
 if __name__ == "__main__":

@@ -1,195 +1,328 @@
-# database.py
-import sqlite3
+import aiosqlite
 from datetime import datetime
+from cryptography.fernet import Fernet
+from decouple import config
+import logging
 
 DB_PATH = "bot_database.db"
 
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    # Foydalanuvchilar jadvali
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            telegram_id INTEGER UNIQUE,
-            gender TEXT,
-            subscription_duration TEXT,
-            chat_preference TEXT,
-            is_active BOOLEAN DEFAULT 0,
-            subscription_date DATE,
-            membership_type TEXT DEFAULT 'oddiy'
-        )
-    ''')
-    # To'lov kartalari jadvali
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS payment_cards (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            card_number TEXT UNIQUE,
-            card_holder TEXT,
-            expiry_date TEXT,
-            cvv TEXT,
-            is_active BOOLEAN DEFAULT 1
-        )
-    ''')
-    # To'lovlar jadvali
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS payments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            amount REAL,
-            receipt_id TEXT,
-            status TEXT DEFAULT 'pending',
-            payment_date DATE,
-            FOREIGN KEY (user_id) REFERENCES users (telegram_id)
-        )
-    ''')
-    # Kanallar jadvali
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS channels (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            channel_id TEXT UNIQUE,
-            channel_username TEXT
-        )
-    ''')
-    # Obuna planlari jadvali
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS subscription_plans (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            duration TEXT UNIQUE,
-            price REAL
-        )
-    ''')
-    conn.commit()
-    conn.close()
+# Shifrlash kalitini .env fayldan olish
+try:
+    key = config('ENCRYPTION_KEY').encode()
+    cipher = Fernet(key)
+except Exception as e:
+    logging.error(f"Shifrlash kalitini olishda xato: {e}")
+    raise
 
-def save_user(telegram_id, gender, subscription_duration):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("INSERT OR IGNORE INTO users (telegram_id, gender, subscription_duration) VALUES (?, ?, ?)",
-                   (telegram_id, gender, subscription_duration))
-    conn.commit()
-    conn.close()
+# Logging sozlamalari
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-def update_user_chat_preference(telegram_id, chat_preference):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("UPDATE users SET chat_preference=? WHERE telegram_id=?", (chat_preference, telegram_id))
-    conn.commit()
-    conn.close()
-
-def save_payment(user_id, amount, receipt_id):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("INSERT INTO payments (user_id, amount, receipt_id, payment_date) VALUES (?, ?, ?, ?)",
-                   (user_id, amount, receipt_id, datetime.now().date()))
-    payment_id = cursor.lastrowid
-    conn.commit()
-    conn.close()
-    return payment_id
-
-def update_payment_status(payment_id, status, user_id, membership_type):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("UPDATE payments SET status=? WHERE id=?", (status, payment_id))
-    cursor.execute("UPDATE users SET is_active=?, subscription_date=?, membership_type=? WHERE telegram_id=?",
-                   (1 if status == 'confirmed' else 0, datetime.now().date(), membership_type, user_id))
-    conn.commit()
-    conn.close()
-
-def save_card(card_number, card_holder, expiry_date, cvv):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
+async def init_db():
     try:
-        cursor.execute("INSERT INTO payment_cards (card_number, card_holder, expiry_date, cvv) VALUES (?, ?, ?, ?)",
-                       (card_number, card_holder, expiry_date, cvv))
-        conn.commit()
-        return True
-    except sqlite3.IntegrityError:
-        return False
-    finally:
-        conn.close()
+        async with aiosqlite.connect(DB_PATH) as conn:
+            cursor = await conn.cursor()
+            # Foydalanuvchilar jadvali (username qo'shildi)
+            await cursor.execute('''
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    telegram_id INTEGER UNIQUE,
+                    gender TEXT,
+                    subscription_duration TEXT,
+                    username TEXT,
+                    chat_preference TEXT,
+                    is_active BOOLEAN DEFAULT 0,
+                    subscription_date DATE,
+                    membership_type TEXT DEFAULT 'oddiy'
+                )
+            ''')
+            # To'lov kartalari jadvali
+            await cursor.execute('''
+                CREATE TABLE IF NOT EXISTS payment_cards (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    card_number TEXT UNIQUE,
+                    card_holder TEXT,
+                    expiry_date TEXT,
+                    cvv TEXT,
+                    is_active BOOLEAN DEFAULT 1
+                )
+            ''')
+            # To'lovlar jadvali
+            await cursor.execute('''
+                CREATE TABLE IF NOT EXISTS payments (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER,
+                    amount REAL,
+                    receipt_id TEXT,
+                    status TEXT DEFAULT 'pending',
+                    payment_date DATE,
+                    FOREIGN KEY (user_id) REFERENCES users (telegram_id)
+                )
+            ''')
+            # Kanallar jadvali
+            await cursor.execute('''
+                CREATE TABLE IF NOT EXISTS channels (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    channel_id TEXT UNIQUE,
+                    channel_username TEXT
+                )
+            ''')
+            # Obuna planlari jadvali
+            await cursor.execute('''
+                CREATE TABLE IF NOT EXISTS subscription_plans (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    duration TEXT UNIQUE,
+                    price REAL
+                )
+            ''')
+            # Indekslash qo'shish
+            await cursor.execute("CREATE INDEX IF NOT EXISTS idx_telegram_id ON users(telegram_id)")
+            await cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_id ON payments(user_id)")
+            await cursor.execute("CREATE INDEX IF NOT EXISTS idx_payment_status ON payments(status)")
+            await conn.commit()
+    except Exception as e:
+        logging.error(f"Ma'lumotlar bazasini boshlashda xato: {e}")
+        raise
 
-def get_active_cards():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cards = cursor.execute("SELECT card_number, card_holder, expiry_date FROM payment_cards WHERE is_active=1").fetchall()
-    conn.close()
-    return cards
-
-def get_stats():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    total_users = cursor.execute("SELECT COUNT(*) FROM users WHERE is_active=1").fetchone()[0]
-    total_payments = cursor.execute("SELECT COUNT(*) FROM payments WHERE status='confirmed'").fetchone()[0]
-    total_revenue = cursor.execute("SELECT SUM(amount) FROM payments WHERE status='confirmed'").fetchone()[0] or 0
-    mandatory_members = cursor.execute("SELECT COUNT(*) FROM users WHERE membership_type='majburiy'").fetchone()[0]
-    conn.close()
-    return total_users, total_payments, total_revenue, mandatory_members
-
-def get_subscribers():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    subscribers = cursor.execute("SELECT telegram_id, subscription_date, membership_type, subscription_duration FROM users WHERE is_active=1").fetchall()
-    conn.close()
-    return subscribers
-
-def get_pending_payments():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    payments = cursor.execute("SELECT id, user_id, amount, status FROM payments WHERE status='pending'").fetchall()
-    conn.close()
-    return payments
-
-def update_membership_type(telegram_id, membership_type):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("UPDATE users SET membership_type=? WHERE telegram_id=?", (membership_type, telegram_id))
-    conn.commit()
-    conn.close()
-
-def save_channel(channel_id, channel_username):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
+async def save_user(telegram_id, gender, subscription_duration, username=None):
     try:
-        cursor.execute("INSERT OR REPLACE INTO channels (channel_id, channel_username) VALUES (?, ?)",
-                       (channel_id, channel_username))
-        conn.commit()
-        return True
-    except sqlite3.IntegrityError:
-        return False
-    finally:
-        conn.close()
+        async with aiosqlite.connect(DB_PATH) as conn:
+            cursor = await conn.cursor()
+            await cursor.execute(
+                "INSERT OR IGNORE INTO users (telegram_id, gender, subscription_duration, username) VALUES (?, ?, ?, ?)",
+                (telegram_id, gender, subscription_duration, username)
+            )
+            await conn.commit()
+    except Exception as e:
+        logging.error(f"Foydalanuvchi saqlashda xato: {e}")
+        raise
 
-def get_channel():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    channel = cursor.execute("SELECT channel_id, channel_username FROM channels LIMIT 1").fetchone()
-    conn.close()
-    return channel
-
-def save_subscription_plan(duration, price):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
+async def update_user_chat_preference(telegram_id, chat_preference):
     try:
-        cursor.execute("INSERT OR REPLACE INTO subscription_plans (duration, price) VALUES (?, ?)",
-                       (duration, price))
-        conn.commit()
-        return True
-    except sqlite3.IntegrityError:
+        async with aiosqlite.connect(DB_PATH) as conn:
+            cursor = await conn.cursor()
+            await cursor.execute(
+                "UPDATE users SET chat_preference=? WHERE telegram_id=?",
+                (chat_preference, telegram_id)
+            )
+            await conn.commit()
+    except Exception as e:
+        logging.error(f"Chat sozlamasini yangilashda xato: {e}")
+        raise
+
+async def save_payment(user_id, amount, receipt_id):
+    try:
+        async with aiosqlite.connect(DB_PATH) as conn:
+            cursor = await conn.cursor()
+            await cursor.execute(
+                "INSERT INTO payments (user_id, amount, receipt_id, payment_date) VALUES (?, ?, ?, ?)",
+                (user_id, amount, receipt_id, datetime.now().date())
+            )
+            payment_id = cursor.lastrowid
+            await conn.commit()
+            return payment_id
+    except Exception as e:
+        logging.error(f"To'lov saqlashda xato: {e}")
+        raise
+
+async def update_payment_status(payment_id, status, user_id, membership_type):
+    try:
+        async with aiosqlite.connect(DB_PATH) as conn:
+            cursor = await conn.cursor()
+            await cursor.execute(
+                "UPDATE payments SET status=? WHERE id=?",
+                (status, payment_id)
+            )
+            await cursor.execute(
+                "UPDATE users SET is_active=?, subscription_date=?, membership_type=? WHERE telegram_id=?",
+                (1 if status == 'confirmed' else 0, datetime.now().date(), membership_type, user_id)
+            )
+            await conn.commit()
+    except Exception as e:
+        logging.error(f"To'lov statusini yangilashda xato: {e}")
+        raise
+
+async def save_card(card_number, card_holder, expiry_date, cvv):
+    try:
+        encrypted_card = cipher.encrypt(card_number.encode()).decode()
+        encrypted_cvv = cipher.encrypt(cvv.encode()).decode()
+        async with aiosqlite.connect(DB_PATH) as conn:
+            cursor = await conn.cursor()
+            await cursor.execute(
+                "INSERT INTO payment_cards (card_number, card_holder, expiry_date, cvv) VALUES (?, ?, ?, ?)",
+                (encrypted_card, card_holder, expiry_date, encrypted_cvv)
+            )
+            await conn.commit()
+            return True
+    except aiosqlite.IntegrityError:
         return False
-    finally:
-        conn.close()
+    except Exception as e:
+        logging.error(f"Karta saqlashda xato: {e}")
+        raise
 
-def get_subscription_plans():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    plans = cursor.execute("SELECT duration, price FROM subscription_plans").fetchall()
-    conn.close()
-    return plans
+async def get_active_cards():
+    try:
+        async with aiosqlite.connect(DB_PATH) as conn:
+            cursor = await conn.cursor()
+            await cursor.execute(
+                "SELECT card_number, card_holder, expiry_date FROM payment_cards WHERE is_active=1"
+            )
+            cards = await cursor.fetchall()
+            decrypted_cards = [(cipher.decrypt(card[0].encode()).decode(), card[1], card[2]) for card in cards]
+            return decrypted_cards
+    except Exception as e:
+        logging.error(f"Aktiv kartalarni olishda xato: {e}")
+        raise
 
-def get_plan_price(duration):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    price = cursor.execute("SELECT price FROM subscription_plans WHERE duration=?", (duration,)).fetchone()
-    conn.close()
-    return price[0] if price else 0
+async def get_stats():
+    try:
+        async with aiosqlite.connect(DB_PATH) as conn:
+            cursor = await conn.cursor()
+            await cursor.execute("SELECT COUNT(*) FROM users WHERE is_active=1")
+            total_users = (await cursor.fetchone())[0]
+            await cursor.execute("SELECT COUNT(*) FROM payments WHERE status='confirmed'")
+            total_payments = (await cursor.fetchone())[0]
+            await cursor.execute("SELECT SUM(amount) FROM payments WHERE status='confirmed'")
+            total_revenue = (await cursor.fetchone())[0] or 0
+            await cursor.execute("SELECT COUNT(*) FROM users WHERE membership_type='majburiy'")
+            mandatory_members = (await cursor.fetchone())[0]
+            return total_users, total_payments, total_revenue, mandatory_members
+    except Exception as e:
+        logging.error(f"Statistikani olishda xato: {e}")
+        raise
+
+async def get_subscribers(page: int = 1, per_page: int = 10):
+    try:
+        offset = (page - 1) * per_page
+        async with aiosqlite.connect(DB_PATH) as conn:
+            cursor = await conn.cursor()
+            await cursor.execute(
+                "SELECT telegram_id, subscription_date, membership_type, subscription_duration FROM users WHERE is_active=1 LIMIT ? OFFSET ?",
+                (per_page, offset)
+            )
+            return await cursor.fetchall()
+    except Exception as e:
+        logging.error(f"Obunachilarni olishda xato: {e}")
+        raise
+
+async def get_subscribers_count():
+    try:
+        async with aiosqlite.connect(DB_PATH) as conn:
+            cursor = await conn.cursor()
+            await cursor.execute("SELECT COUNT(*) FROM users WHERE is_active=1")
+            return (await cursor.fetchone())[0]
+    except Exception as e:
+        logging.error(f"Obunachilar sonini olishda xato: {e}")
+        raise
+
+async def get_pending_payments(page: int = 1, per_page: int = 10):
+    try:
+        offset = (page - 1) * per_page
+        async with aiosqlite.connect(DB_PATH) as conn:
+            cursor = await conn.cursor()
+            await cursor.execute(
+                "SELECT id, user_id, amount, status FROM payments WHERE status='pending' LIMIT ? OFFSET ?",
+                (per_page, offset)
+            )
+            return await cursor.fetchall()
+    except Exception as e:
+        logging.error(f"Kutayotgan to'lovlarni olishda xato: {e}")
+        raise
+
+async def get_pending_payments_count():
+    try:
+        async with aiosqlite.connect(DB_PATH) as conn:
+            cursor = await conn.cursor()
+            await cursor.execute("SELECT COUNT(*) FROM payments WHERE status='pending'")
+            return (await cursor.fetchone())[0]
+    except Exception as e:
+        logging.error(f"Kutayotgan to'lovlar sonini olishda xato: {e}")
+        raise
+
+async def update_membership_type(telegram_id, membership_type):
+    try:
+        async with aiosqlite.connect(DB_PATH) as conn:
+            cursor = await conn.cursor()
+            await cursor.execute(
+                "UPDATE users SET membership_type=? WHERE telegram_id=?",
+                (membership_type, telegram_id)
+            )
+            await conn.commit()
+    except Exception as e:
+        logging.error(f"A'zolik turini yangilashda xato: {e}")
+        raise
+
+async def save_channel(channel_id, channel_username):
+    try:
+        async with aiosqlite.connect(DB_PATH) as conn:
+            cursor = await conn.cursor()
+            await cursor.execute(
+                "INSERT OR REPLACE INTO channels (channel_id, channel_username) VALUES (?, ?)",
+                (channel_id, channel_username)
+            )
+            await conn.commit()
+            return True
+    except aiosqlite.IntegrityError:
+        return False
+    except Exception as e:
+        logging.error(f"Kanal saqlashda xato: {e}")
+        raise
+
+async def get_channel():
+    try:
+        async with aiosqlite.connect(DB_PATH) as conn:
+            cursor = await conn.cursor()
+            await cursor.execute("SELECT channel_id, channel_username FROM channels LIMIT 1")
+            return await cursor.fetchone()
+    except Exception as e:
+        logging.error(f"Kanal ma'lumotlarini olishda xato: {e}")
+        raise
+
+async def save_subscription_plan(duration, price):
+    try:
+        async with aiosqlite.connect(DB_PATH) as conn:
+            cursor = await conn.cursor()
+            await cursor.execute(
+                "INSERT OR REPLACE INTO subscription_plans (duration, price) VALUES (?, ?)",
+                (duration, price)
+            )
+            await conn.commit()
+            return True
+    except aiosqlite.IntegrityError:
+        return False
+    except Exception as e:
+        logging.error(f"Obuna planini saqlashda xato: {e}")
+        raise
+
+async def get_subscription_plans():
+    try:
+        async with aiosqlite.connect(DB_PATH) as conn:
+            cursor = await conn.cursor()
+            await cursor.execute("SELECT duration, price FROM subscription_plans")
+            return await cursor.fetchall()
+    except Exception as e:
+        logging.error(f"Obuna planlarini olishda xato: {e}")
+        raise
+
+async def get_plan_price(duration):
+    try:
+        async with aiosqlite.connect(DB_PATH) as conn:
+            cursor = await conn.cursor()
+            await cursor.execute("SELECT price FROM subscription_plans WHERE duration=?", (duration,))
+            price = await cursor.fetchone()
+            return price[0] if price else 0
+    except Exception as e:
+        logging.error(f"Obuna narxini olishda xato: {e}")
+        raise
+
+async def search_subscribers(query):
+    try:
+        async with aiosqlite.connect(DB_PATH) as conn:
+            cursor = await conn.cursor()
+            await cursor.execute(
+                "SELECT telegram_id, subscription_date, membership_type, subscription_duration, username FROM users WHERE is_active=1 AND (telegram_id LIKE ? OR subscription_duration LIKE ? OR username LIKE ?)",
+                (f"%{query}%", f"%{query}%", f"%{query}%")
+            )
+            return await cursor.fetchall()
+    except Exception as e:
+        logging.error(f"Obunachilarni qidirishda xato: {e}")
+        raise

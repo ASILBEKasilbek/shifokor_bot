@@ -17,4 +17,6 @@ class AdminStates(StatesGroup):
     waiting_for_channel_username = State()
     waiting_for_plan_price = State()
     waiting_for_plan_duration = State()
+    waiting_for_search_query = State()
+
     
