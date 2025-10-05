@@ -2,7 +2,7 @@ from aiogram import Dispatcher, Bot
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, CallbackQuery
-from aiogram import F
+from aiogram import F, BaseMiddleware
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from database import (
     get_stats, get_subscribers, get_subscribers_count, get_pending_payments, get_pending_payments_count,
@@ -12,9 +12,9 @@ from database import (
 from keyboards import get_admin_main_keyboard, get_admin_confirm_keyboard, get_membership_keyboard
 from states import AdminStates
 import logging
-import aiosqlite
-from database import DB_PATH
 from decouple import config
+from typing import Callable, Any, Awaitable
+import time
 
 # Shifrlash kalitini .env fayldan olish
 try:
@@ -26,17 +26,39 @@ except Exception as e:
     raise
 
 # Logging sozlamalari
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Throttling middleware
+class ThrottlingMiddleware(BaseMiddleware):
+    def __init__(self):
+        super().__init__()
+        self.last_call = {}
+
+    async def __call__(self, handler: Callable[[Any, dict], Awaitable[Any]], event: Any, data: dict) -> Any:
+        user_id = getattr(event.from_user, "id", None)
+        current_time = time.time()
+        last_call = self.last_call.get(user_id, 0)
+        if current_time - last_call < 1:
+            logging.warning(f"Throttling: Too frequent request from {user_id}")
+            await event.answer("Juda tez so'rov yuboryapsiz, biroz kuting!", show_alert=True)
+            return
+        self.last_call[user_id] = current_time
+        return await handler(event, data)
 
 # Admin middleware
-class AdminMiddleware:
-    def __init__(self, admin_id):
+class AdminMiddleware(BaseMiddleware):
+    def __init__(self, admin_id: int):
+        super().__init__()
         self.admin_id = admin_id
 
-    async def __call__(self, handler, event, data):
-        if event.from_user.id != self.admin_id:
-            await event.answer("Ruxsat yo'q!")
+    async def __call__(self, handler: Callable[[Any, dict], Awaitable[Any]], event: Any, data: dict) -> Any:
+        user_id = getattr(event.from_user, "id", None)
+        logging.debug(f"AdminMiddleware: handler={handler}, event={event}, data={data}")
+        if user_id != self.admin_id:
+            logging.warning(f"Access denied for user_id {user_id}")
+            await event.answer("Ruxsat yo'q!", show_alert=True)
             return
+        logging.debug(f"Access granted for user_id {user_id}")
         return await handler(event, data)
 
 # Paginatsiya uchun klaviatura
@@ -52,44 +74,29 @@ def get_paginated_keyboard(page: int, total_pages: int, callback_prefix: str = "
     return builder.as_markup()
 
 def setup_admin_handlers(dp: Dispatcher, bot: Bot, admin_id: int):
+    # Register middlewares
+    dp.message.middleware(ThrottlingMiddleware())
+    dp.callback_query.middleware(ThrottlingMiddleware())
     dp.message.middleware(AdminMiddleware(admin_id))
     dp.callback_query.middleware(AdminMiddleware(admin_id))
 
-    # Throttling middleware
-    async def throttling_middleware(handler, event, data):
-        import time
-        last_call = data.get('last_call', 0)
-        if time.time() - last_call < 0.5:
-            await event.answer("Juda tez so'rov yuboryapsiz, biroz kuting!")
-            return
-        data['last_call'] = time.time()
-        return await handler(event, data)
-
-    dp.message.middleware(throttling_middleware)
-    dp.callback_query.middleware(throttling_middleware)
-
     @dp.message(Command("admin"))
     async def admin_handler(message: Message):
+        logging.debug(f"Admin handler triggered for user_id {message.from_user.id}")
         await message.answer(
             "Admin panel:",
-            reply_markup=await get_admin_main_keyboard()  # await qo'shildi
+            reply_markup=await get_admin_main_keyboard()
         )
 
-    @dp.callback_query(lambda c: c.data.startswith("confirm_") or c.data.startswith("reject_"))
+    @dp.callback_query(F.data.startswith("confirm_") | F.data.startswith("reject_"))
     async def admin_payment_confirmation(callback: CallbackQuery):
-        if callback.from_user.id != admin_id:
-            await callback.answer("Sizda bu amalni bajarish uchun ruxsat yo'q.", show_alert=True)
-            return
-        
         parts = callback.data.split("_")
-        action = parts[0]              # confirm yoki reject
-        payment_id = int(parts[2])     # 1
-        user_id = int(parts[3])        # 5306481482
+        action = parts[0]
+        payment_id = int(parts[2])
+        user_id = int(parts[3])
 
-        payment_id = int(payment_id)
-        user_id = int(user_id)
         status = "confirmed" if action == "confirm" else "rejected"
-        membership_type = "oddiy"  # Adjust as needed
+        membership_type = "oddiy"
         try:
             await update_payment_status(payment_id, status, user_id, membership_type)
             subscription = await get_user_subscription(user_id)
@@ -113,16 +120,15 @@ def setup_admin_handlers(dp: Dispatcher, bot: Bot, admin_id: int):
                         text="Afsuski, to'lovingiz rad etildi. Iltimos, qayta urinib ko'ring yoki admin bilan bog'laning."
                     )
 
-            # Xabarni yangilash (matn/caption/umuman yo'q bo'lishi mumkin)
-            if callback.message.text:
-                status = "Tasdiqlandi" if action == "confirm" else "Rad etildi"
-                await callback.message.edit_text(f"To'lov {status} sifatida yangilandi.")
-            elif callback.message.caption:
-                await callback.message.edit_caption(
-                    caption=callback.message.caption + f"\n\nTo'lov {status} sifatida yangilandi."
-                )
-            else:
-                await callback.message.answer(f"To'lov {status} sifatida yangilandi.")
+                status_text = "Tasdiqlandi" if action == "confirm" else "Rad etildi"
+                if callback.message.text:
+                    await callback.message.edit_text(f"To'lov {status_text} sifatida yangilandi.")
+                elif callback.message.caption:
+                    await callback.message.edit_caption(
+                        caption=callback.message.caption + f"\n\nTo'lov {status_text} sifatida yangilandi."
+                    )
+                else:
+                    await callback.message.answer(f"To'lov {status_text} sifatida yangilandi.")
 
         except Exception as e:
             logging.error(f"To'lov tasdiqlashda xato: {e}")
@@ -139,7 +145,7 @@ def setup_admin_handlers(dp: Dispatcher, bot: Bot, admin_id: int):
 💰 Tasdiqlangan to'lovlar soni: {total_payments}
 💵 Umumiy daromad: {total_revenue} so'm
 ⚡ Majburiy a'zolik: {mandatory_members} ta"""
-            await callback.message.edit_text(stats_text)  # await qo'shildi
+            await callback.message.edit_text(stats_text)
             await callback.answer()
         except Exception as e:
             logging.error(f"Statistika olishda xato: {e}")
@@ -201,7 +207,7 @@ def setup_admin_handlers(dp: Dispatcher, bot: Bot, admin_id: int):
             success = await save_card(data['card_number'], data['card_holder'], data['expiry_date'], message.text)
             await message.answer("✅ Karta muvaffaqiyatli qo'shildi!" if success else "❌ Bu karta raqami allaqachon mavjud!")
             await state.clear()
-            await message.answer("Admin panel:", reply_markup=await get_admin_main_keyboard())  # await qo'shildi
+            await message.answer("Admin panel:", reply_markup=await get_admin_main_keyboard())
         except Exception as e:
             logging.error(f"Karta qo'shishda xato: {e}")
             await message.answer("Xato yuz berdi. Loglarni tekshiring.")
@@ -250,7 +256,7 @@ def setup_admin_handlers(dp: Dispatcher, bot: Bot, admin_id: int):
         try:
             user_id = int(message.text)
             await state.update_data(user_id=user_id)
-            await message.answer("A'zolik turini tanlang:", reply_markup=await get_membership_keyboard(user_id))  # await qo'shildi
+            await message.answer("A'zolik turini tanlang:", reply_markup=await get_membership_keyboard(user_id))
             await state.clear()
         except ValueError:
             await message.answer("Iltimos, to'g'ri Telegram ID kiriting (raqamlar).")
@@ -265,7 +271,7 @@ def setup_admin_handlers(dp: Dispatcher, bot: Bot, admin_id: int):
             await update_membership_type(user_id, membership_type)
             await callback.message.edit_text(
                 f"A'zolik turi {membership_type} ga o'zgartirildi!",
-                reply_markup=await get_admin_main_keyboard()  # await qo'shildi
+                reply_markup=await get_admin_main_keyboard()
             )
             await callback.answer()
         except Exception as e:
@@ -299,7 +305,7 @@ def setup_admin_handlers(dp: Dispatcher, bot: Bot, admin_id: int):
             success = await save_channel(data['channel_id'], channel_username)
             await message.answer("✅ Kanal muvaffaqiyatli sozlandi!" if success else "❌ Kanal saqlashda xato yuz berdi!")
             await state.clear()
-            await message.answer("Admin panel:", reply_markup=await get_admin_main_keyboard())  # await qo'shildi
+            await message.answer("Admin panel:", reply_markup=await get_admin_main_keyboard())
         except Exception as e:
             logging.error(f"Kanal saqlashda xato: {e}")
             await message.answer("Xato yuz berdi. Loglarni tekshiring.")
@@ -331,7 +337,7 @@ def setup_admin_handlers(dp: Dispatcher, bot: Bot, admin_id: int):
             success = await save_subscription_plan(data['duration'], price)
             await message.answer("✅ Plan muvaffaqiyatli qo'shildi!" if success else "❌ Plan saqlashda xato!")
             await state.clear()
-            await message.answer("Admin panel:", reply_markup=await get_admin_main_keyboard())  # await qo'shildi
+            await message.answer("Admin panel:", reply_markup=await get_admin_main_keyboard())
         except ValueError:
             await message.answer("Iltimos, to'g'ri narx kiriting (raqam).")
         except Exception as e:
@@ -340,7 +346,7 @@ def setup_admin_handlers(dp: Dispatcher, bot: Bot, admin_id: int):
 
     @dp.callback_query(F.data == "admin_back")
     async def admin_back_handler(callback: CallbackQuery):
-        await callback.message.edit_text("Admin panel:", reply_markup=await get_admin_main_keyboard())  # await qo'shildi
+        await callback.message.edit_text("Admin panel:", reply_markup=await get_admin_main_keyboard())
         await callback.answer()
 
     @dp.message(Command("search_user"))
@@ -358,7 +364,7 @@ def setup_admin_handlers(dp: Dispatcher, bot: Bot, admin_id: int):
                 telegram_id, subscription_date, membership_type, subscription_duration, username = res
                 text += f"• ID: {telegram_id}\n  Username: @{username or 'Noma\'lum'}\n  Sana: {subscription_date}\n  Tur: {membership_type}\n  Muddat: {subscription_duration}\n\n"
             text = text if results else "Hech nima topilmadi."
-            await message.answer(text, reply_markup=await get_admin_main_keyboard())  # await qo'shildi
+            await message.answer(text, reply_markup=await get_admin_main_keyboard())
             await state.clear()
         except Exception as e:
             logging.error(f"Qidiruvda xato: {e}")

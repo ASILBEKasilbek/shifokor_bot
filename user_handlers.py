@@ -23,7 +23,6 @@ def setup_user_handlers(dp: Dispatcher, bot: Bot, admin_id: int):
     @dp.message(Command("start"))
     async def start_handler(message: Message, state: FSMContext):
         channel = await get_channel()
-
         # Agar kanal mavjud bo'lsa - tekshirish
         if channel:
             channel_id, channel_username = channel
@@ -54,7 +53,7 @@ def setup_user_handlers(dp: Dispatcher, bot: Bot, admin_id: int):
             builder.button(text="Aniqlash", callback_data="start_gender")
             builder.adjust(1)
             await message.answer(
-                "Salom! Bu bot yordamida jinsni taxmin qilish va pullik xizmatlardan foydalanasiz.",
+                "👋 Salom! Bu bot yordamida jinsni taxmin qilish va pullik xizmatlardan foydalanasiz.\n\n🔎 Aniqlash tugmasini bosing.",
                 reply_markup=builder.as_markup()
             )
 
