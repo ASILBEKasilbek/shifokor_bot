@@ -7,7 +7,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from database import (
     get_stats, get_subscribers, get_subscribers_count, get_pending_payments, get_pending_payments_count,
     update_membership_type, save_channel, save_card, update_payment_status, save_subscription_plan,
-    get_subscription_plans, search_subscribers
+    get_subscription_plans, search_subscribers, get_user_subscription
 )
 from keyboards import get_admin_main_keyboard, get_admin_confirm_keyboard, get_membership_keyboard
 from states import AdminStates
@@ -75,36 +75,60 @@ def setup_admin_handlers(dp: Dispatcher, bot: Bot, admin_id: int):
             reply_markup=await get_admin_main_keyboard()  # await qo'shildi
         )
 
-    @dp.callback_query(F.data.startswith("confirm_pay_") | F.data.startswith("reject_pay_"))
-    async def admin_payment_handler(callback: CallbackQuery):
-        parts = callback.data.split("_")
-        action = parts[0]
-        payment_id = int(parts[2])
-        user_id = int(parts[3])
-
-        async with aiosqlite.connect(DB_PATH) as conn:
-            cursor = await conn.execute("SELECT amount FROM payments WHERE id=?", (payment_id,))
-            payment = await cursor.fetchone()
-
-        if not payment:
-            await callback.answer("To'lov topilmadi!")
+    @dp.callback_query(lambda c: c.data.startswith("confirm_") or c.data.startswith("reject_"))
+    async def admin_payment_confirmation(callback: CallbackQuery):
+        if callback.from_user.id != admin_id:
+            await callback.answer("Sizda bu amalni bajarish uchun ruxsat yo'q.", show_alert=True)
             return
+        
+        parts = callback.data.split("_")
+        action = parts[0]              # confirm yoki reject
+        payment_id = int(parts[2])     # 1
+        user_id = int(parts[3])        # 5306481482
 
-        amount = payment[0]
-        status = 'confirmed' if action == "confirm" else 'rejected'
-        membership_type = 'majburiy' if action == "confirm" and amount > 200000 else 'oddiy'
-
+        payment_id = int(payment_id)
+        user_id = int(user_id)
+        status = "confirmed" if action == "confirm" else "rejected"
+        membership_type = "oddiy"  # Adjust as needed
         try:
             await update_payment_status(payment_id, status, user_id, membership_type)
-            await bot.send_message(user_id, "To'lov tasdiqlandi! Obuna faollashtirildi." if action == "confirm" else "To'lov rad etildi. Qayta urinib ko'ring.")
-            await callback.message.edit_caption(
-                caption=callback.message.caption + ("\n\n✅ Tasdiqlandi!" if action == "confirm" else "\n\n❌ Rad etildi!"),
-                reply_markup=None
-            )
-            await callback.answer()
+            subscription = await get_user_subscription(user_id)
+            if subscription:
+                duration, sub_date, expiry_date, is_active = subscription
+                if status == "confirmed":
+                    await bot.send_message(
+                        chat_id=user_id,
+                        text=(
+                            f"Tabriklaymiz! To'lovingiz tasdiqlandi.\n"
+                            f"Obuna ma'lumotlari:\n"
+                            f"Tarif: {duration}\n"
+                            f"Boshlangan sana: {sub_date}\n"
+                            f"Tugash sanasi: {expiry_date}\n"
+                            f"Holat: Faol"
+                        )
+                    )
+                else:
+                    await bot.send_message(
+                        chat_id=user_id,
+                        text="Afsuski, to'lovingiz rad etildi. Iltimos, qayta urinib ko'ring yoki admin bilan bog'laning."
+                    )
+
+            # Xabarni yangilash (matn/caption/umuman yo'q bo'lishi mumkin)
+            if callback.message.text:
+                status = "Tasdiqlandi" if action == "confirm" else "Rad etildi"
+                await callback.message.edit_text(f"To'lov {status} sifatida yangilandi.")
+            elif callback.message.caption:
+                await callback.message.edit_caption(
+                    caption=callback.message.caption + f"\n\nTo'lov {status} sifatida yangilandi."
+                )
+            else:
+                await callback.message.answer(f"To'lov {status} sifatida yangilandi.")
+
         except Exception as e:
-            logging.error(f"To'lov tasdiqlash xatosi: {e}")
-            await callback.answer("Xato yuz berdi. Loglarni tekshiring.")
+            logging.error(f"To'lov tasdiqlashda xato: {e}")
+            await callback.message.answer("Xato yuz berdi. Iltimos, qayta urinib ko'ring.")
+
+        await callback.answer()
 
     @dp.callback_query(F.data == "admin_stats")
     async def admin_stats_handler(callback: CallbackQuery):

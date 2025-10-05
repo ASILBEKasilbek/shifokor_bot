@@ -6,7 +6,7 @@ from aiogram import F
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from database import (
     save_user, update_user_chat_preference, save_payment,
-    get_channel, get_active_cards, get_plan_price
+    get_channel, get_active_cards, get_plan_price, get_user_subscription
 )
 from keyboards import (
     get_gender_keyboard, get_duration_keyboard, get_chat_preference_keyboard,
@@ -14,6 +14,7 @@ from keyboards import (
 )
 from states import BotStates
 import logging
+from datetime import datetime
 
 # Logging sozlamalari
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -22,38 +23,41 @@ def setup_user_handlers(dp: Dispatcher, bot: Bot, admin_id: int):
     @dp.message(Command("start"))
     async def start_handler(message: Message, state: FSMContext):
         channel = await get_channel()
-        if not channel:
-            await message.answer("Kanal hali sozlanmagan. Admin bilan bog'laning.")
-            return
 
+        # Agar kanal mavjud bo'lsa - tekshirish
         if channel:
             channel_id, channel_username = channel
+            try:
+                member: ChatMember = await bot.get_chat_member(chat_id=channel_id, user_id=message.from_user.id)
+                if member.status not in ['member', 'administrator', 'creator']:
+                    await message.answer(
+                        f"Kanalga a'zo bo'ling: {channel_username}",
+                        reply_markup=await get_channel_join_keyboard(channel_username)
+                    )
+                    return
+            except Exception as e:
+                logging.error(f"Kanal a'zoligini tekshirishda xato: {e}")
+                # Kanal bor, lekin tekshirib bo'lmadi — baribir davom etadi
+
+        # Kanal yo'q yoki foydalanuvchi tekshiruvdan o'tgan bo'lsa - davom etadi
+        subscription = await get_user_subscription(message.from_user.id)
+        if subscription and subscription[3]:  # is_active == 1
+            duration, sub_date, expiry_date, _ = subscription
+            await message.answer(
+                f"Siz obuna bo'lgansiz!\n"
+                f"Tarif: {duration}\n"
+                f"Boshlangan sana: {sub_date}\n"
+                f"Tugash sanasi: {expiry_date}"
+            )
         else:
-            channel_id, channel_username = None, None
+            builder = InlineKeyboardBuilder()
+            builder.button(text="Aniqlash", callback_data="start_gender")
+            builder.adjust(1)
+            await message.answer(
+                "Salom! Bu bot yordamida jinsni taxmin qilish va pullik xizmatlardan foydalanasiz.",
+                reply_markup=builder.as_markup()
+            )
 
-
-        channel_id, channel_username = channel
-        try:
-            member: ChatMember = await bot.get_chat_member(chat_id=channel_id, user_id=message.from_user.id)
-            if member.status not in ['member', 'administrator', 'creator']:
-                await message.answer(
-                    f"Kanalga a'zo bo'ling: {channel_username}",
-                    reply_markup=await get_channel_join_keyboard(channel_username)  # await qo'shildi
-                )
-                return
-        except Exception as e:
-            logging.error(f"Kanal a'zoligini tekshirishda xato: {e}")
-            await message.answer("Kanal a'zoligini tekshirishda xato yuz berdi. Admin bilan bog'laning.")
-            return
-
-        builder = InlineKeyboardBuilder()
-        builder.button(text="Aniqlash", callback_data="start_gender")
-        builder.adjust(1)
-
-        await message.answer(
-            "Salom! Bu bot yordamida jinsni taxmin qilish va pullik xizmatlardan foydalanasiz.",
-            reply_markup=builder.as_markup()
-        )
         await state.clear()
 
     @dp.callback_query(F.data == "check_membership")
@@ -67,14 +71,24 @@ def setup_user_handlers(dp: Dispatcher, bot: Bot, admin_id: int):
         try:
             member: ChatMember = await bot.get_chat_member(chat_id=channel_id, user_id=callback.from_user.id)
             if member.status in ['member', 'administrator', 'creator']:
-                builder = InlineKeyboardBuilder()
-                builder.button(text="Aniqlash", callback_data="start_gender")
-                builder.adjust(1)
-
-                await callback.message.edit_text(
-                    "Rahmat! Endi botdan foydalanishingiz mumkin.",
-                    reply_markup=builder.as_markup()
-                )
+                # Check subscription status
+                subscription = await get_user_subscription(callback.from_user.id)
+                if subscription and subscription[3]:  # is_active == 1
+                    duration, sub_date, expiry_date, _ = subscription
+                    await callback.message.edit_text(
+                        f"Siz obuna bo'lgansiz!\n"
+                        f"Tarif: {duration}\n"
+                        f"Boshlangan sana: {sub_date}\n"
+                        f"Tugash sanasi: {expiry_date}"
+                    )
+                else:
+                    builder = InlineKeyboardBuilder()
+                    builder.button(text="Aniqlash", callback_data="start_gender")
+                    builder.adjust(1)
+                    await callback.message.edit_text(
+                        "Rahmat! Endi botdan foydalanishingiz mumkin.",
+                        reply_markup=builder.as_markup()
+                    )
                 await state.clear()
             else:
                 await callback.answer("Hali kanalga a'zo bo'lmagansiz. Iltimos, a'zo bo'ling.", show_alert=True)
@@ -87,7 +101,7 @@ def setup_user_handlers(dp: Dispatcher, bot: Bot, admin_id: int):
     async def start_gender_handler(callback: CallbackQuery, state: FSMContext):
         await callback.message.edit_text(
             "Iltimos, jinsingizni tanlang:",
-            reply_markup=await get_gender_keyboard()  # await qo'shildi
+            reply_markup=await get_gender_keyboard()
         )
         await state.set_state(BotStates.waiting_for_gender)
         await callback.answer()
@@ -98,7 +112,7 @@ def setup_user_handlers(dp: Dispatcher, bot: Bot, admin_id: int):
         await state.update_data(gender=gender)
         await callback.message.edit_text(
             f"Jinsingiz: {gender.capitalize()}\n\nEndi obuna muddatini tanlang:",
-            reply_markup=await get_duration_keyboard()  # await qo'shildi
+            reply_markup=await get_duration_keyboard()
         )
         await state.set_state(BotStates.waiting_for_subscription_duration)
         await callback.answer()
@@ -153,7 +167,7 @@ def setup_user_handlers(dp: Dispatcher, bot: Bot, admin_id: int):
 
         card_info = None
         for card in cards:
-            card_info = card  # Haqiqiy loyihada to'lov usuliga mos filtr qo'llang
+            card_info = card
             break
 
         if card_info:
@@ -181,7 +195,7 @@ def setup_user_handlers(dp: Dispatcher, bot: Bot, admin_id: int):
         if callback.data == "back_to_duration":
             await callback.message.edit_text(
                 "Obuna muddatini tanlang:",
-                reply_markup=await get_duration_keyboard()  # await qo'shildi
+                reply_markup=await get_duration_keyboard()
             )
             await state.set_state(BotStates.waiting_for_subscription_duration)
         elif callback.data == "paid":
@@ -218,14 +232,14 @@ def setup_user_handlers(dp: Dispatcher, bot: Bot, admin_id: int):
                     chat_id=admin_id,
                     photo=receipt_id,
                     caption=admin_text,
-                    reply_markup=await get_admin_confirm_keyboard(payment_id, message.from_user.id)  # await qo'shildi
+                    reply_markup=await get_admin_confirm_keyboard(payment_id, message.from_user.id)
                 )
             else:
                 await bot.send_document(
                     chat_id=admin_id,
                     document=receipt_id,
                     caption=admin_text,
-                    reply_markup=await get_admin_confirm_keyboard(payment_id, message.from_user.id)  # await qo'shildi
+                    reply_markup=await get_admin_confirm_keyboard(payment_id, message.from_user.id)
                 )
         except Exception as e:
             logging.error(f"Chek yuborish xatosi: {e}")
@@ -233,10 +247,23 @@ def setup_user_handlers(dp: Dispatcher, bot: Bot, admin_id: int):
             await state.clear()
             return
 
-        await message.answer(
-            f"To'lov chekingiz qabul qilindi ({amount} so'm). Admin tasdiqlaydi.\n\nSuhbatni qanday o'tkazmoqchisiz?",
-            reply_markup=await get_chat_preference_keyboard()  # await qo'shildi
-        )
+        subscription = await get_user_subscription(message.from_user.id)
+        if subscription:
+            duration, sub_date, expiry_date, _ = subscription
+            await message.answer(
+                f"To'lov chekingiz qabul qilindi ({amount} so'm).\n"
+                f"Obuna ma'lumotlari:\n"
+                f"Tarif: {duration}\n"
+                f"Boshlangan sana: {sub_date}\n"
+                f"Tugash sanasi: {expiry_date}\n\n"
+                f"Admin tasdiqlaydi. Suhbatni qanday o'tkazmoqchisiz?",
+                reply_markup=await get_chat_preference_keyboard()
+            )
+        else:
+            await message.answer(
+                f"To'lov chekingiz qabul qilindi ({amount} so'm). Admin tasdiqlaydi.\n\nSuhbatni qanday o'tkazmoqchisiz?",
+                reply_markup=await get_chat_preference_keyboard()
+            )
         await state.set_state(BotStates.waiting_for_chat_preference)
 
     @dp.callback_query(StateFilter(BotStates.waiting_for_chat_preference), F.data.startswith("chat_"))
@@ -254,9 +281,23 @@ def setup_user_handlers(dp: Dispatcher, bot: Bot, admin_id: int):
             await state.clear()
             return
 
-        await callback.message.answer(
-            f"Suhbat usuli: {preference.capitalize()}\n\nEndi admin to'lovni tasdiqlaydi. Iltimos kuting."
-        )
+        subscription = await get_user_subscription(callback.from_user.id)
+        if subscription:
+            duration, sub_date, expiry_date, is_active = subscription
+            status = "Faol" if is_active else "Kutmoqda"
+            await callback.message.answer(
+                f"Suhbat usuli: {preference.capitalize()}\n"
+                f"Obuna ma'lumotlari:\n"
+                f"Tarif: {duration}\n"
+                f"Boshlangan sana: {sub_date}\n"
+                f"Tugash sanasi: {expiry_date}\n"
+                f"Holat: {status}\n\n"
+                f"Endi admin to'lovni tasdiqlaydi. Iltimos kuting."
+            )
+        else:
+            await callback.message.answer(
+                f"Suhbat usuli: {preference.capitalize()}\n\nEndi admin to'lovni tasdiqlaydi. Iltimos kuting."
+            )
         await state.set_state(BotStates.waiting_for_admin_confirmation)
         await callback.message.delete()
         await callback.answer()

@@ -71,3 +71,8 @@ async def get_payment_method_keyboard(methods: list):
         builder.button(text=method, callback_data=f"pay_{method.lower()}")
     builder.adjust(2)
     return builder.as_markup()
+async def get_renew_subscription_keyboard():
+    builder = InlineKeyboardBuilder()
+    builder.button(text="Obunani yangilash", callback_data="start_gender")
+    builder.adjust(1)
+    return builder.as_markup()

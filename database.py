@@ -21,7 +21,7 @@ async def init_db():
     try:
         async with aiosqlite.connect(DB_PATH) as conn:
             cursor = await conn.cursor()
-            # Foydalanuvchilar jadvali (username qo'shildi)
+            # Foydalanuvchilar jadvali (expiry_date qo'shildi)
             await cursor.execute('''
                 CREATE TABLE IF NOT EXISTS users (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -32,10 +32,11 @@ async def init_db():
                     chat_preference TEXT,
                     is_active BOOLEAN DEFAULT 0,
                     subscription_date DATE,
+                    expiry_date DATE,  -- New column for subscription expiry
                     membership_type TEXT DEFAULT 'oddiy'
                 )
             ''')
-            # To'lov kartalari jadvali
+            # Other tables remain unchanged
             await cursor.execute('''
                 CREATE TABLE IF NOT EXISTS payment_cards (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -46,7 +47,6 @@ async def init_db():
                     is_active BOOLEAN DEFAULT 1
                 )
             ''')
-            # To'lovlar jadvali
             await cursor.execute('''
                 CREATE TABLE IF NOT EXISTS payments (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -58,7 +58,6 @@ async def init_db():
                     FOREIGN KEY (user_id) REFERENCES users (telegram_id)
                 )
             ''')
-            # Kanallar jadvali
             await cursor.execute('''
                 CREATE TABLE IF NOT EXISTS channels (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -66,7 +65,6 @@ async def init_db():
                     channel_username TEXT
                 )
             ''')
-            # Obuna planlari jadvali
             await cursor.execute('''
                 CREATE TABLE IF NOT EXISTS subscription_plans (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -74,26 +72,12 @@ async def init_db():
                     price REAL
                 )
             ''')
-            # Indekslash qo'shish
             await cursor.execute("CREATE INDEX IF NOT EXISTS idx_telegram_id ON users(telegram_id)")
             await cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_id ON payments(user_id)")
             await cursor.execute("CREATE INDEX IF NOT EXISTS idx_payment_status ON payments(status)")
             await conn.commit()
     except Exception as e:
         logging.error(f"Ma'lumotlar bazasini boshlashda xato: {e}")
-        raise
-
-async def save_user(telegram_id, gender, subscription_duration, username=None):
-    try:
-        async with aiosqlite.connect(DB_PATH) as conn:
-            cursor = await conn.cursor()
-            await cursor.execute(
-                "INSERT OR IGNORE INTO users (telegram_id, gender, subscription_duration, username) VALUES (?, ?, ?, ?)",
-                (telegram_id, gender, subscription_duration, username)
-            )
-            await conn.commit()
-    except Exception as e:
-        logging.error(f"Foydalanuvchi saqlashda xato: {e}")
         raise
 
 async def update_user_chat_preference(telegram_id, chat_preference):
@@ -124,22 +108,6 @@ async def save_payment(user_id, amount, receipt_id):
         logging.error(f"To'lov saqlashda xato: {e}")
         raise
 
-async def update_payment_status(payment_id, status, user_id, membership_type):
-    try:
-        async with aiosqlite.connect(DB_PATH) as conn:
-            cursor = await conn.cursor()
-            await cursor.execute(
-                "UPDATE payments SET status=? WHERE id=?",
-                (status, payment_id)
-            )
-            await cursor.execute(
-                "UPDATE users SET is_active=?, subscription_date=?, membership_type=? WHERE telegram_id=?",
-                (1 if status == 'confirmed' else 0, datetime.now().date(), membership_type, user_id)
-            )
-            await conn.commit()
-    except Exception as e:
-        logging.error(f"To'lov statusini yangilashda xato: {e}")
-        raise
 
 async def save_card(card_number, card_holder, expiry_date, cvv):
     try:
@@ -191,18 +159,21 @@ async def get_stats():
         raise
 
 async def get_subscribers(page: int = 1, per_page: int = 10):
-    try:
-        offset = (page - 1) * per_page
-        async with aiosqlite.connect(DB_PATH) as conn:
-            cursor = await conn.cursor()
-            await cursor.execute(
-                "SELECT telegram_id, subscription_date, membership_type, subscription_duration FROM users WHERE is_active=1 LIMIT ? OFFSET ?",
-                (per_page, offset)
-            )
-            return await cursor.fetchall()
-    except Exception as e:
-        logging.error(f"Obunachilarni olishda xato: {e}")
-        raise
+    offset = (page - 1) * per_page
+    async with aiosqlite.connect(DB_PATH) as conn:
+        cursor = await conn.execute(
+            """
+            SELECT telegram_id, subscription_date, membership_type, subscription_duration, username
+            FROM users
+            WHERE is_active = 1
+            ORDER BY subscription_date DESC
+            LIMIT ? OFFSET ?
+            """,
+            (per_page, offset)
+        )
+        rows = await cursor.fetchall()
+    return rows
+
 
 async def get_subscribers_count():
     try:
@@ -325,4 +296,100 @@ async def search_subscribers(query):
             return await cursor.fetchall()
     except Exception as e:
         logging.error(f"Obunachilarni qidirishda xato: {e}")
+        raise
+
+from datetime import datetime, timedelta
+
+async def save_user(telegram_id, gender, subscription_duration, username=None):
+    try:
+        # Calculate expiry date based on subscription duration
+        duration_mapping = {
+            "1 hafta": timedelta(days=7),
+            "1 oy": timedelta(days=30),
+            "3 oy": timedelta(days=90),
+            # Add other durations as needed
+        }
+        subscription_start = datetime.now().date()
+        expiry_date = subscription_start + duration_mapping.get(subscription_duration, timedelta(days=30))
+
+        async with aiosqlite.connect(DB_PATH) as conn:
+            cursor = await conn.cursor()
+            await cursor.execute(
+                """
+                INSERT OR REPLACE INTO users 
+                (telegram_id, gender, subscription_duration, username, subscription_date, expiry_date, is_active) 
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (telegram_id, gender, subscription_duration, username, subscription_start, expiry_date, 0)
+            )
+            await conn.commit()
+    except Exception as e:
+        logging.error(f"Foydalanuvchi saqlashda xato: {e}")
+        raise
+
+async def update_payment_status(payment_id, status, user_id, membership_type):
+    try:
+        async with aiosqlite.connect(DB_PATH) as conn:
+            cursor = await conn.cursor()
+            await cursor.execute(
+                "UPDATE payments SET status=? WHERE id=?",
+                (status, payment_id)
+            )
+            # Activate user and update subscription details
+            if status == 'confirmed':
+                await cursor.execute(
+                    """
+                    UPDATE users 
+                    SET is_active=?, membership_type=? 
+                    WHERE telegram_id=?
+                    """,
+                    (1, membership_type, user_id)
+                )
+            await conn.commit()
+    except Exception as e:
+        logging.error(f"To'lov statusini yangilashda xato: {e}")
+        raise
+
+async def check_expired_subscriptions():
+    try:
+        today = datetime.now().date()
+        async with aiosqlite.connect(DB_PATH) as conn:
+            cursor = await conn.cursor()
+            await cursor.execute(
+                """
+                SELECT telegram_id, username 
+                FROM users 
+                WHERE is_active=1 AND expiry_date <= ?
+                """,
+                (today,)
+            )
+            expired_users = await cursor.fetchall()
+            for user in expired_users:
+                telegram_id = user[0]
+                await cursor.execute(
+                    "UPDATE users SET is_active=0 WHERE telegram_id=?",
+                    (telegram_id,)
+                )
+            await conn.commit()
+            return [(user[0], user[1]) for user in expired_users]
+    except Exception as e:
+        logging.error(f"Obuna muddati tugaganlarni tekshirishda xato: {e}")
+        raise
+
+
+async def get_user_subscription(telegram_id):
+    try:
+        async with aiosqlite.connect(DB_PATH) as conn:
+            cursor = await conn.cursor()
+            await cursor.execute(
+                """
+                SELECT subscription_duration, subscription_date, expiry_date, is_active 
+                FROM users 
+                WHERE telegram_id=?
+                """,
+                (telegram_id,)
+            )
+            return await cursor.fetchone()
+    except Exception as e:
+        logging.error(f"Foydalanuvchi obuna ma'lumotlarini olishda xato: {e}")
         raise
