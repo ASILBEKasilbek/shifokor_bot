@@ -175,7 +175,7 @@ def setup_user_handlers(dp: Dispatcher, bot: Bot, admin_id: int):
                 f"✅ Tanlangan to'lov usuli: {method.capitalize()}\n"
                 f"💳 Karta: {card_info[0]}\n"
                 f"👤 Egasi: {card_info[1]}\n"
-                f"⏳ Amal qilish muddati: {card_info[2]}\n\n"
+                # f"⏳ Amal qilish muddati: {card_info[2]}\n\n"
                 f"To'lov qilganingizdan so'ng, chekni (rasm yoki hujjat) yuboring."
             )
 
