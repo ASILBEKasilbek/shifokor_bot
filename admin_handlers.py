@@ -15,12 +15,7 @@ import logging
 from decouple import config
 from typing import Callable, Any, Awaitable
 import time
-from dotenv import load_dotenv
-load_dotenv()
-import os
-# Adminlar ro'yxati (o'zingizning admin ID'laringizni qo'shing)
 
-ADMINS = os.getenv("ADMINS")
 
 # Shifrlash kalitini .env fayldan olish
 try:
@@ -34,33 +29,6 @@ except Exception as e:
 # Logging sozlamalari
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Throttling middleware
-# class ThrottlingMiddleware(BaseMiddleware):
-#     def __init__(self):
-#         super().__init__()
-#         self.last_call = {}
-
-#     async def __call__(self, handler: Callable[[Any, dict], Awaitable[Any]], event: Any, data: dict) -> Any:
-#         user_id = getattr(event.from_user, "id", None)
-#         current_time = time.time()
-#         last_call = self.last_call.get(user_id, 0)
-#         if current_time - last_call < 0.5:
-#             logging.warning(f"Throttling: Too frequent request from {user_id}")
-#             await event.answer("Juda tez so'rov yuboryapsiz, biroz kuting!", show_alert=True)
-#             return
-#         self.last_call[user_id] = current_time
-#         return await handler(event, data)
-
-# Admin middleware (oddiy funksiya sifatida)
-# async def admin_middleware(handler: Callable[[Any, dict], Awaitable[Any]], event: Any, data: dict) -> Any:
-#     user_id = getattr(event.from_user, "id", None)
-#     logging.debug(f"Admin middleware: Checking user_id {user_id} against ADMINS {ADMINS}")
-#     if user_id not in ADMINS:
-#         logging.warning(f"Access denied for user_id {user_id}")
-#         await event.answer("Ruxsat yo'q!", show_alert=True)
-#         return
-#     logging.debug(f"Access granted for user_id {user_id}")
-#     return await handler(event, data)
 
 # Paginatsiya uchun klaviatura
 def get_paginated_keyboard(page: int, total_pages: int, callback_prefix: str = "sub_page") -> InlineKeyboardBuilder:
@@ -79,10 +47,9 @@ def setup_admin_handlers(dp: Dispatcher, bot: Bot):
     # Admin handlers
     @dp.message(Command("admin"))
     async def admin_handler(message: Message):
-        logging.debug(f"Admin handler triggered for user_id {message.from_user.id}")
-        print(str(message.from_user.id),ADMINS)
-
-        if int(message.from_user.id) in ADMINS:
+        logging.debug(f"Admin handler triggered for user_id {message.from_user.id}") # int sifatida
+        ADMINS = [5306481482, 7370167126]
+        if message.from_user.id not in ADMINS:
             logging.warning(f"Access denied for user_id {message.from_user.id}")
             await message.answer("Ruxsat yo'q!", show_alert=True)
             return
