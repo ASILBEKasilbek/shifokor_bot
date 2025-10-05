@@ -82,7 +82,7 @@ async def main():
 
     # Handlerlarni ro'yxatdan o'tkazish
     setup_user_handlers(dp, bot, ADMIN_ID)
-    setup_admin_handlers(dp, bot, ADMIN_ID)
+    setup_admin_handlers(dp, bot)
     asyncio.create_task(check_subscriptions_periodically(bot))
     await dp.start_polling(bot)
 
