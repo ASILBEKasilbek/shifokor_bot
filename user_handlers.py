@@ -116,8 +116,22 @@ def setup_user_handlers(dp: Dispatcher, bot: Bot, admin_id: int):
     async def gender_handler(callback: CallbackQuery, state: FSMContext):
         gender = callback.data.split("_")[1]
         await state.update_data(gender=gender)
-        a="👩" if gender == "female" else "👶" if gender == "twin" else "👨"
-        b="O'g'il" if gender == "male" else "Qiz" if gender == "female" else "Egizak"
+        a = (
+            "👩" if gender == "female" 
+            else "👶" if gender == "twin" 
+            else "👨" if gender == "male" 
+            else "👨‍👩‍👧‍👦" if gender == "all" 
+            else "❓"
+        )
+
+        b = (
+            "O'g'il" if gender == "male" 
+            else "Qiz" if gender == "female" 
+            else "Egizak" if gender == "twin" 
+            else "Barchasi" if gender == "all" 
+            else "Noma’lum"
+        )
+
         await callback.message.edit_text(
             f"🍼 Jins tanlandi: {b}  {a}\n\n📆 Endi o'zingizga kerakli muddatni tanlang: 👇",
             reply_markup=await get_duration_keyboard()

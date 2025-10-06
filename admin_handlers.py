@@ -44,7 +44,7 @@ def setup_admin_handlers(dp: Dispatcher, bot: Bot):
     @dp.message(Command("admin"))
     async def admin_handler(message: Message):
         logging.debug(f"Admin handler triggered for user_id {message.from_user.id}") # int sifatida
-        ADMINS = [5306481482, 7370167126,7818786645]
+        ADMINS = [5306481482, 7370167126,7818786645,6643594131]
         if message.from_user.id not in ADMINS:
             logging.warning(f"Access denied for user_id {message.from_user.id}")
             await message.answer("Ruxsat yo'q!", show_alert=True)
