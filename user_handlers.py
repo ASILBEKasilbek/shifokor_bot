@@ -177,14 +177,18 @@ def setup_user_handlers(dp: Dispatcher, bot: Bot, admin_id: int):
 
         card_info = None
         for card in cards:
-            card_info = card
-            break
+            if method.lower() == card[4].lower():
+                card_info = card
+                break
+            card_info=card
+
+            
 
         if card_info:
             card_text = (
                 f"✅ Tanlangan to'lov usuli: #{method.capitalize()}\n"
-                f"💳 Karta: ``` {card_info[0]}```\n"
-                f"👤 Egasi: {card_info[1]}\n"
+                f"💳 Karta: ``` {card_info[1]}```\n"
+                f"👤 Egasi: {card_info[2]}\n\n"
                 f"To'lov qilganingizdan so'ng, chekni rasmini yuboring ✅"
             )
 

@@ -130,13 +130,15 @@ async def save_card(card_number, card_holder, expiry_date, cvv, payment_system):
 
 async def get_active_cards():
     """
-    Cardlarni (faol) olib keladi va decrypt qilib (id, card_number, card_holder, expiry_date) ro'yxatini qaytaradi.
+    Faol kartalarni olib keladi va decrypt qiladi.
+    Qaytadi: (id, card_number, card_holder, expiry_date, payment_system)
     """
     try:
         async with aiosqlite.connect(DB_PATH) as conn:
             cursor = await conn.cursor()
             await cursor.execute(
-                "SELECT id, card_number, card_holder, expiry_date FROM payment_cards WHERE is_active=1"
+                "SELECT id, card_number, card_holder, expiry_date, payment_system "
+                "FROM payment_cards WHERE is_active=1"
             )
             rows = await cursor.fetchall()
             decrypted_cards = []
@@ -145,12 +147,13 @@ async def get_active_cards():
                 enc_number = row[1]
                 holder = row[2]
                 expiry = row[3]
+                system = row[4]
                 try:
                     number = cipher.decrypt(enc_number.encode()).decode()
                 except Exception as e:
                     logging.error(f"Karta deshifrlashda xato (id={cid}): {e}")
                     number = "<decrypt_error>"
-                decrypted_cards.append((cid, number, holder, expiry))
+                decrypted_cards.append((cid, number, holder, expiry, system))
             return decrypted_cards
     except Exception as e:
         logging.error(f"Aktiv kartalarni olishda xato: {e}")

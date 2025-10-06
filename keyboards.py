@@ -51,8 +51,6 @@ async def get_admin_main_keyboard():
     builder.button(text="📂 Kanallar ro'yxati", callback_data="admin_list_channels")
 
     builder.button(text="🔄 Tasdiqlashlar", callback_data="admin_confirmations")
-    # 🔙 Orqaga
-    builder.button(text="🔙 Orqaga", callback_data="admin_back")
 
     # Tugmalarni tartibga solish (har qatorda 2 ta)
     builder.adjust(2)

@@ -222,10 +222,11 @@ def setup_admin_handlers(dp: Dispatcher, bot: Bot):
 
             text = "💳 <b>Saqlangan kartalar:</b>\n\n"
             builder = InlineKeyboardBuilder()
-            for cid, number, holder, expiry in cards:
+            for cid, number, holder, expiry, system in cards:
                 masked = mask_card(number)
-                text += f"• {masked} — {holder} ({expiry})\n"
-                builder.button(text=f"❌ O'chirish {masked}", callback_data=f"delete_card_{cid}")
+                text += f"• {system.title()} — {masked} — {holder} ({expiry})\n"
+                builder.button(text=f"❌ O'chirish {system}", callback_data=f"delete_card_{cid}")
+
             builder.button(text="⬅️ Orqaga", callback_data="admin_back")
             builder.adjust(1)
             await callback.message.edit_text(text, reply_markup=builder.as_markup())
