@@ -3,8 +3,8 @@ from database import get_subscription_plans
 
 async def get_gender_keyboard():
     builder = InlineKeyboardBuilder()
-    builder.button(text="O'g'il 👨", callback_data="gender_male")
-    builder.button(text="Qiz 👩", callback_data="gender_female")
+    builder.button(text="O'g'il 👦", callback_data="gender_male")
+    builder.button(text="Qiz 🧒", callback_data="gender_female")
     builder.button(text="Egizak 👶", callback_data="gender_twin")
     builder.button(text="Barchasi 🌐", callback_data="gender_all")
     builder.adjust(2)
