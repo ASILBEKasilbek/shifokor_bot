@@ -14,7 +14,13 @@ from datetime import datetime, timedelta
 import aiosqlite
 from database import DB_PATH, check_expired_subscriptions
 load_dotenv()
-
+from aiogram import types
+async def set_default_commands(bot):
+    await bot.set_my_commands(
+        [
+           types.BotCommand(command="start", description="⚪️Botni ishga tushirish | 🟡Botni yangilash")
+        ]
+    )
 # Konfiguratsiya
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
@@ -81,6 +87,7 @@ async def main():
     await init_db()   # ⬅️ faqat shu yerda chaqiramiz
 
     # Handlerlarni ro'yxatdan o'tkazish
+    await set_default_commands(bot)
     setup_user_handlers(dp, bot, ADMIN_ID)
     setup_admin_handlers(dp, bot)
     asyncio.create_task(check_subscriptions_periodically(bot))

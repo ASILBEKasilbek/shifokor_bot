@@ -44,6 +44,7 @@ async def init_db():
                     card_holder TEXT,
                     expiry_date TEXT,
                     cvv TEXT,
+                    payment_system TEXT,  
                     is_active BOOLEAN DEFAULT 1
                 )
             ''')
@@ -109,15 +110,15 @@ async def save_payment(user_id, amount, receipt_id):
         raise
 
 
-async def save_card(card_number, card_holder, expiry_date, cvv):
+async def save_card(card_number, card_holder, expiry_date, cvv, payment_system):
     try:
         encrypted_card = cipher.encrypt(card_number.encode()).decode()
         encrypted_cvv = cipher.encrypt(cvv.encode()).decode()
         async with aiosqlite.connect(DB_PATH) as conn:
             cursor = await conn.cursor()
             await cursor.execute(
-                "INSERT INTO payment_cards (card_number, card_holder, expiry_date, cvv) VALUES (?, ?, ?, ?)",
-                (encrypted_card, card_holder, expiry_date, encrypted_cvv)
+                "INSERT INTO payment_cards (card_number, card_holder, expiry_date, cvv, payment_system) VALUES (?, ?, ?, ?, ?)",
+                (encrypted_card, card_holder, expiry_date, encrypted_cvv, payment_system)
             )
             await conn.commit()
             return True
@@ -128,14 +129,28 @@ async def save_card(card_number, card_holder, expiry_date, cvv):
         raise
 
 async def get_active_cards():
+    """
+    Cardlarni (faol) olib keladi va decrypt qilib (id, card_number, card_holder, expiry_date) ro'yxatini qaytaradi.
+    """
     try:
         async with aiosqlite.connect(DB_PATH) as conn:
             cursor = await conn.cursor()
             await cursor.execute(
-                "SELECT card_number, card_holder, expiry_date FROM payment_cards WHERE is_active=1"
+                "SELECT id, card_number, card_holder, expiry_date FROM payment_cards WHERE is_active=1"
             )
-            cards = await cursor.fetchall()
-            decrypted_cards = [(cipher.decrypt(card[0].encode()).decode(), card[1], card[2]) for card in cards]
+            rows = await cursor.fetchall()
+            decrypted_cards = []
+            for row in rows:
+                cid = row[0]
+                enc_number = row[1]
+                holder = row[2]
+                expiry = row[3]
+                try:
+                    number = cipher.decrypt(enc_number.encode()).decode()
+                except Exception as e:
+                    logging.error(f"Karta deshifrlashda xato (id={cid}): {e}")
+                    number = "<decrypt_error>"
+                decrypted_cards.append((cid, number, holder, expiry))
             return decrypted_cards
     except Exception as e:
         logging.error(f"Aktiv kartalarni olishda xato: {e}")
@@ -174,6 +189,55 @@ async def get_subscribers(page: int = 1, per_page: int = 10):
         rows = await cursor.fetchall()
     return rows
 
+async def get_all_cards():
+    """
+    Barcha kartalarni (faol va faol emas) qaytaradi: (id, decrypted_number, holder, expiry, is_active)
+    """
+    try:
+        async with aiosqlite.connect(DB_PATH) as conn:
+            cursor = await conn.cursor()
+            await cursor.execute(
+                "SELECT id, card_number, card_holder, expiry_date, is_active FROM payment_cards"
+            )
+            rows = await cursor.fetchall()
+            out = []
+            for row in rows:
+                cid = row[0]
+                enc_number = row[1]
+                holder = row[2]
+                expiry = row[3]
+                active = row[4]
+                try:
+                    number = cipher.decrypt(enc_number.encode()).decode()
+                except Exception as e:
+                    logging.error(f"Karta deshifrlashda xato (id={cid}): {e}")
+                    number = "<decrypt_error>"
+                out.append((cid, number, holder, expiry, active))
+            return out
+    except Exception as e:
+        logging.error(f"Kartalarni olishda xato: {e}")
+        raise
+
+async def delete_card(card_id):
+    """
+    Karta o'chirilishi: is_active=0 qilib belgilaydi (saqlab qo'yadi).
+    """
+    try:
+        async with aiosqlite.connect(DB_PATH) as conn:
+            cursor = await conn.cursor()
+            await cursor.execute("UPDATE payment_cards SET is_active=0 WHERE id=?", (card_id,))
+            await conn.commit()
+            return True
+    except Exception as e:
+        logging.error(f"Karta o'chirishda xato (id={card_id}): {e}")
+        raise
+
+def mask_card(number: str) -> str:
+    # Raqamlarni faqat oxirgi 4 ko'rsatadi: "**** **** **** 1234"
+    s = number.replace(" ", "").replace("-", "")
+    if len(s) >= 4:
+        return "**** **** **** " + s[-4:]
+    return number
 
 async def get_subscribers_count():
     try:
@@ -392,4 +456,47 @@ async def get_user_subscription(telegram_id):
             return await cursor.fetchone()
     except Exception as e:
         logging.error(f"Foydalanuvchi obuna ma'lumotlarini olishda xato: {e}")
+        raise
+
+
+async def get_all_plans():
+    try:
+        async with aiosqlite.connect(DB_PATH) as conn:
+            cursor = await conn.cursor()
+            await cursor.execute("SELECT id, duration, price FROM subscription_plans")
+            return await cursor.fetchall()
+    except Exception as e:
+        logging.error(f"Obunalarni olishda xato: {e}")
+        raise
+
+async def delete_plan(plan_id):
+    try:
+        async with aiosqlite.connect(DB_PATH) as conn:
+            cursor = await conn.cursor()
+            await cursor.execute("DELETE FROM subscription_plans WHERE id=?", (plan_id,))
+            await conn.commit()
+            return True
+    except Exception as e:
+        logging.error(f"Obunani o‘chirishda xato: {e}")
+        raise
+
+async def get_all_channels():
+    try:
+        async with aiosqlite.connect(DB_PATH) as conn:
+            cursor = await conn.cursor()
+            await cursor.execute("SELECT id, channel_id, channel_username FROM channels")
+            return await cursor.fetchall()
+    except Exception as e:
+        logging.error(f"Kanallarni olishda xato: {e}")
+        raise
+
+async def delete_channel(channel_id):
+    try:
+        async with aiosqlite.connect(DB_PATH) as conn:
+            cursor = await conn.cursor()
+            await cursor.execute("DELETE FROM channels WHERE id=?", (channel_id,))
+            await conn.commit()
+            return True
+    except Exception as e:
+        logging.error(f"Kanalni o‘chirishda xato: {e}")
         raise

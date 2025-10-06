@@ -4,7 +4,7 @@ from database import get_subscription_plans
 async def get_gender_keyboard():
     builder = InlineKeyboardBuilder()
     builder.button(text="O'g'il 👨", callback_data="gender_male")
-    builder.button(text="Ayol 👩", callback_data="gender_female")
+    builder.button(text="Qiz 👩", callback_data="gender_female")
     builder.button(text="Egizak 👶", callback_data="gender_twin")
     builder.button(text="Barchasi 🌐", callback_data="gender_all")
     builder.adjust(2)
@@ -33,15 +33,32 @@ async def get_chat_preference_keyboard():
 
 async def get_admin_main_keyboard():
     builder = InlineKeyboardBuilder()
+
+    # 📊 Statistikalar
     builder.button(text="📊 Statistika", callback_data="admin_stats")
-    builder.button(text="💳 Karta qo'shish", callback_data="admin_add_card")
     builder.button(text="👥 Obunachilar", callback_data="admin_subscribers")
+
+    # 💳 Kartalar bo‘limi
+    builder.button(text="➕ Karta qo'shish", callback_data="admin_add_card")
+    builder.button(text="💳  Kartalar ro'yxati", callback_data="admin_list_cards")
+
+    # 🕒 Obunalar
+    builder.button(text="➕ Obuna qo'shish", callback_data="admin_set_plans")
+    builder.button(text="📜 Obunalar ro'yxati", callback_data="admin_list_plans")
+
+    # 📢 Kanallar
+    builder.button(text="➕ Kanal qo'shish", callback_data="admin_set_channel")
+    builder.button(text="📂 Kanallar ro'yxati", callback_data="admin_list_channels")
+
     builder.button(text="🔄 Tasdiqlashlar", callback_data="admin_confirmations")
-    builder.button(text="📢 Kanal qo'shish", callback_data="admin_set_channel")
-    builder.button(text="🕒 Obuna plani qo'shish", callback_data="admin_set_plans")
+    # 🔙 Orqaga
     builder.button(text="🔙 Orqaga", callback_data="admin_back")
+
+    # Tugmalarni tartibga solish (har qatorda 2 ta)
     builder.adjust(2)
+
     return builder.as_markup()
+
 
 async def get_admin_confirm_keyboard(payment_id: int, user_id: int):
     builder = InlineKeyboardBuilder()

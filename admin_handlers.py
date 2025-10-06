@@ -4,11 +4,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, CallbackQuery
 from aiogram import F, BaseMiddleware
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from database import (
-    get_stats, get_subscribers, get_subscribers_count, get_pending_payments, get_pending_payments_count,
-    update_membership_type, save_channel, save_card, update_payment_status, save_subscription_plan,
-    get_subscription_plans, search_subscribers, get_user_subscription
-)
+from database import *
 from keyboards import get_admin_main_keyboard, get_admin_confirm_keyboard, get_membership_keyboard
 from states import AdminStates
 import logging
@@ -48,7 +44,7 @@ def setup_admin_handlers(dp: Dispatcher, bot: Bot):
     @dp.message(Command("admin"))
     async def admin_handler(message: Message):
         logging.debug(f"Admin handler triggered for user_id {message.from_user.id}") # int sifatida
-        ADMINS = [5306481482, 7370167126]
+        ADMINS = [5306481482, 7370167126,7818786645]
         if message.from_user.id not in ADMINS:
             logging.warning(f"Access denied for user_id {message.from_user.id}")
             await message.answer("Ruxsat yo'q!", show_alert=True)
@@ -73,17 +69,26 @@ def setup_admin_handlers(dp: Dispatcher, bot: Bot):
             if subscription:
                 duration, sub_date, expiry_date, is_active = subscription
                 if status == "confirmed":
+                    from aiogram.utils.keyboard import InlineKeyboardBuilder
+
+                    builder = InlineKeyboardBuilder()
+                    builder.button(
+                        text="👩‍💻 Admin bilan bog'lanish",
+                        url="https://t.me/Guliruxsor_Homila_Jinsi"
+                    )
+
                     await bot.send_message(
                         chat_id=user_id,
                         text=(
-                            f"Tabriklaymiz! To'lovingiz tasdiqlandi.\n"
+                            f"✅ Obuna faollashtirildi!\n\n"
+                            f"━━━━━━━━━━━━━━━━\n"
                             f"Obuna ma'lumotlari:\n"
                             f"Tarif: {duration}\n"
-                            f"Boshlangan sana: {sub_date}\n"
-                            f"Tugash sanasi: {expiry_date}\n"
-                            f"Holat: Faol"
-                        )
-                    )
+                            f"📅 Boshlangan sana: {sub_date} dan\n"
+                            f"⏳ Tugash sanasi: {expiry_date} gacha!\n"
+                            f"━━━━━━━━━━━━━━━━\n\n"
+                            f"🤝 Qo‘llab-quvvatlash bilan bog'lanish uchun pastdagi tugmani bosing va o'zingizga kerakli savolni berib unga javob oling!"
+                        ),reply_markup=builder.as_markup() )
                 else:
                     await bot.send_message(
                         chat_id=user_id,
@@ -145,10 +150,28 @@ def setup_admin_handlers(dp: Dispatcher, bot: Bot):
     async def paginated_subscribers_handler(callback: CallbackQuery):
         page = int(callback.data.split("_")[2])
         await show_subscribers_page(callback, page)
+    
+    def get_payment_systems_keyboard():
+        builder = InlineKeyboardBuilder()
+        systems = ["Click", "Payme", "Uzcard", "Payeer"]
+        for sys in systems:
+            builder.button(text=sys, callback_data=f"add_card_system_{sys.lower()}")
+        builder.button(text="⬅️ Orqaga", callback_data="admin_back")
+        builder.adjust(2)
+        return builder.as_markup()
+
 
     @dp.callback_query(F.data == "admin_add_card")
     async def admin_add_card_handler(callback: CallbackQuery, state: FSMContext):
-        await callback.message.edit_text("💳 Karta qo'shish:\nKarta raqamini kiriting (XXXX-XXXX-XXXX-XXXX):")
+        await callback.message.edit_text("💳 Qaysi to‘lov tizimiga karta qo‘shmoqchisiz?", 
+                                        reply_markup=get_payment_systems_keyboard())
+        await callback.answer()
+
+    @dp.callback_query(F.data.startswith("add_card_system_"))
+    async def select_card_system(callback: CallbackQuery, state: FSMContext):
+        system = callback.data.replace("add_card_system_", "")
+        await state.update_data(payment_system=system)
+        await callback.message.edit_text(f"💳 {system.title()} uchun karta raqamini kiriting (XXXX-XXXX-XXXX-XXXX):")
         await state.set_state(AdminStates.waiting_for_card_number)
         await callback.answer()
 
@@ -174,13 +197,122 @@ def setup_admin_handlers(dp: Dispatcher, bot: Bot):
     async def add_cvv_handler(message: Message, state: FSMContext):
         data = await state.get_data()
         try:
-            success = await save_card(data['card_number'], data['card_holder'], data['expiry_date'], message.text)
-            await message.answer("✅ Karta muvaffaqiyatli qo'shildi!" if success else "❌ Bu karta raqami allaqachon mavjud!")
+            success = await save_card(
+                data['card_number'],
+                data['card_holder'],
+                data['expiry_date'],
+                message.text,  # cvv
+                data['payment_system']  # yangi qo‘shildi
+            )
+            await message.answer("✅ Karta muvaffaqiyatli qo'shildi!" if success else "❌ Bu karta allaqachon mavjud!")
             await state.clear()
             await message.answer("Admin panel:", reply_markup=await get_admin_main_keyboard())
         except Exception as e:
             logging.error(f"Karta qo'shishda xato: {e}")
             await message.answer("Xato yuz berdi. Loglarni tekshiring.")
+
+    @dp.callback_query(F.data == "admin_list_cards")
+    async def admin_list_cards(callback: CallbackQuery):
+        try:
+            cards = await get_active_cards()
+            if not cards:
+                await callback.message.edit_text("Hozircha kartalar yo'q.", reply_markup=await get_admin_main_keyboard())
+                await callback.answer()
+                return
+
+            text = "💳 <b>Saqlangan kartalar:</b>\n\n"
+            builder = InlineKeyboardBuilder()
+            for cid, number, holder, expiry in cards:
+                masked = mask_card(number)
+                text += f"• {masked} — {holder} ({expiry})\n"
+                builder.button(text=f"❌ O'chirish {masked}", callback_data=f"delete_card_{cid}")
+            builder.button(text="⬅️ Orqaga", callback_data="admin_back")
+            builder.adjust(1)
+            await callback.message.edit_text(text, reply_markup=builder.as_markup())
+            await callback.answer()
+        except Exception as e:
+            logging.error(f"Kartalarni ko'rsatishda xato: {e}")
+            await callback.answer("Xato yuz berdi. Loglarni tekshiring.")
+
+    @dp.callback_query(F.data.startswith("delete_card_"))
+    async def delete_card_handler(callback: CallbackQuery):
+        card_id = int(callback.data.replace("delete_card_", ""))
+        try:
+            await delete_card(card_id)  # DB da yozish kerak
+            await callback.answer("✅ Karta o‘chirildi!")
+            await admin_list_cards(callback)  # ro‘yxatni yangilash
+        except Exception as e:
+            logging.error(f"Karta o‘chirishda xato: {e}")
+            await callback.answer("Xato yuz berdi. Loglarni tekshiring.")
+    
+    @dp.callback_query(F.data == "admin_list_plans")
+    async def admin_list_plans(callback: CallbackQuery):
+        try:
+            plans = await get_all_plans()
+            if not plans:
+                await callback.message.edit_text("📌 Hozircha obunalar yo‘q.", reply_markup=await get_admin_main_keyboard())
+                await callback.answer()
+                return
+
+            text = "🕒 <b>Obunalar ro‘yxati:</b>\n\n"
+            builder = InlineKeyboardBuilder()
+            for pid, duration, price in plans:
+                text += f"• {duration} — {price} so‘m\n"
+                builder.button(text=f"❌ O‘chirish {duration}", callback_data=f"delete_plan_{pid}")
+            builder.button(text="⬅️ Orqaga", callback_data="admin_back")
+            builder.adjust(1)
+
+            await callback.message.edit_text(text, reply_markup=builder.as_markup())
+            await callback.answer()
+        except Exception as e:
+            logging.error(f"Obunalarni ko‘rsatishda xato: {e}")
+            await callback.answer("Xato yuz berdi. Loglarni tekshiring.")
+
+    @dp.callback_query(F.data.startswith("delete_plan_"))
+    async def delete_plan_handler(callback: CallbackQuery):
+        try:
+            plan_id = int(callback.data.split("_")[2])
+            await delete_plan(plan_id)
+            await callback.answer("✅ Obuna o‘chirildi")
+            await admin_list_plans(callback)  # ro‘yxatni yangilash
+        except Exception as e:
+            logging.error(f"Obuna o‘chirishda xato: {e}")
+            await callback.answer("Obuna o‘chirishda xato yuz berdi.")
+
+    @dp.callback_query(F.data == "admin_list_channels")
+    async def admin_list_channels(callback: CallbackQuery):
+        try:
+            channels = await get_all_channels()
+            if not channels:
+                await callback.message.edit_text("📢 Hozircha kanallar yo‘q.", reply_markup=await get_admin_main_keyboard())
+                await callback.answer()
+                return
+
+            text = "📢 <b>Kanallar ro‘yxati:</b>\n\n"
+            builder = InlineKeyboardBuilder()
+            for cid, channel_id, username in channels:
+                text += f"• {username} ({channel_id})\n"
+                builder.button(text=f"❌ O‘chirish {username}", callback_data=f"delete_channel_{cid}")
+            builder.button(text="⬅️ Orqaga", callback_data="admin_back")
+            builder.adjust(1)
+
+            await callback.message.edit_text(text, reply_markup=builder.as_markup())
+            await callback.answer()
+        except Exception as e:
+            logging.error(f"Kanallarni ko‘rsatishda xato: {e}")
+            await callback.answer("Xato yuz berdi. Loglarni tekshiring.")
+
+    @dp.callback_query(F.data.startswith("delete_channel_"))
+    async def delete_channel_handler(callback: CallbackQuery):
+        try:
+            channel_id = int(callback.data.split("_")[2])
+            await delete_channel(channel_id)
+            await callback.answer("✅ Kanal o‘chirildi")
+            await admin_list_channels(callback)  # ro‘yxatni yangilash
+        except Exception as e:
+            logging.error(f"Kanal o‘chirishda xato: {e}")
+            await callback.answer("Kanal o‘chirishda xato yuz berdi.")
+
 
     @dp.callback_query(F.data == "admin_confirmations")
     async def admin_confirmations_handler(callback: CallbackQuery):

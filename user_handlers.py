@@ -1,3 +1,4 @@
+from email.mime import message
 from aiogram import Dispatcher, Bot
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
@@ -43,10 +44,13 @@ def setup_user_handlers(dp: Dispatcher, bot: Bot, admin_id: int):
         if subscription and subscription[3]:  # is_active == 1
             duration, sub_date, expiry_date, _ = subscription
             await message.answer(
-                f"Siz obuna bo'lgansiz!\n"
-                f"Tarif: {duration}\n"
-                f"Boshlangan sana: {sub_date}\n"
-                f"Tugash sanasi: {expiry_date}"
+                f"✅ Obuna faollashtirilgan!\n\n"
+                f"━━━━━━━━━━━━━━━━\n"
+                f"📦 Tarif: {duration}\n"
+                f"📅 Boshlangan sana: {sub_date}\n"
+                f"⏳ Tugash sanasi:{expiry_date} gacha!\n"
+                f"━━━━━━━━━━━━━━━━\n\n"
+                f"🤝 Qo‘llab-quvvatlash bilan bog'lanish uchun pastdagi tugmani bosing va o'zingizga kerakli savolni berib unga javob oling!"
             )
         else:
             builder = InlineKeyboardBuilder()
@@ -74,11 +78,14 @@ def setup_user_handlers(dp: Dispatcher, bot: Bot, admin_id: int):
                 subscription = await get_user_subscription(callback.from_user.id)
                 if subscription and subscription[3]:  # is_active == 1
                     duration, sub_date, expiry_date, _ = subscription
-                    await callback.message.edit_text(
-                        f"Siz obuna bo'lgansiz!\n"
-                        f"Tarif: {duration}\n"
-                        f"Boshlangan sana: {sub_date}\n"
-                        f"Tugash sanasi: {expiry_date}"
+                    await message.answer(
+                        f"✅ Obuna faollashtirilgan!\n\n"
+                        f"━━━━━━━━━━━━━━━━\n"
+                        f"📦 Tarif: {duration}\n"
+                        f"📅 Boshlangan sana: {sub_date}\n"
+                        f"⏳ Tugash sanasi:{expiry_date} gacha!\n"
+                        f"━━━━━━━━━━━━━━━━\n\n"
+                        f"🤝 Qo‘llab-quvvatlash bilan bog'lanish uchun pastdagi tugmani bosing va o'zingizga kerakli savolni berib unga javob oling!"
                     )
                 else:
                     builder = InlineKeyboardBuilder()
@@ -99,7 +106,7 @@ def setup_user_handlers(dp: Dispatcher, bot: Bot, admin_id: int):
     @dp.callback_query(F.data == "start_gender")
     async def start_gender_handler(callback: CallbackQuery, state: FSMContext):
         await callback.message.edit_text(
-            "Iltimos, jinsingizni tanlang:",
+            """🤍 Assalomu alaykum, bo‘lajak ona!\n\nQaysi yo‘nalishda bilib olmoqchisiz?""",
             reply_markup=await get_gender_keyboard()
         )
         await state.set_state(BotStates.waiting_for_gender)
@@ -109,8 +116,10 @@ def setup_user_handlers(dp: Dispatcher, bot: Bot, admin_id: int):
     async def gender_handler(callback: CallbackQuery, state: FSMContext):
         gender = callback.data.split("_")[1]
         await state.update_data(gender=gender)
+        a="👩" if gender == "female" else "👶" if gender == "twin" else "👨"
+        b="O'g'il" if gender == "male" else "Qiz" if gender == "female" else "Egizak"
         await callback.message.edit_text(
-            f"Jinsingiz: {gender.capitalize()}\n\nEndi obuna muddatini tanlang:",
+            f"🍼 Jins tanlandi: {b}  {a}\n\n📆 Endi o'zingizga kerakli muddatni tanlang: 👇",
             reply_markup=await get_duration_keyboard()
         )
         await state.set_state(BotStates.waiting_for_subscription_duration)
@@ -145,13 +154,15 @@ def setup_user_handlers(dp: Dispatcher, bot: Bot, admin_id: int):
             builder.button(text=method, callback_data=f"pay_{method.lower()}")
         builder.button(text="Orqaga", callback_data="back_to_duration")
         builder.adjust(2)
-
+        a="O'g'il" if data['gender'] == "male" else "Qiz" if data['gender'] == "female" else "Egizak"
+        b="👶" if data['gender'] == "male" else "👩" if data['gender'] == "female" else "👶"
+        print(amount)
         card_text = (
-            f"💳 To'lov ko'rsatmasi\n"
-            f"Jins: {data['gender'].capitalize()}\n"
-            f"Tarif: {duration}\n"
-            f"To'lov summasi: {amount} so'm\n\n"
-            f"Quyidagi tugmalar orqali to'lov usulini tanlang:"
+            f"💳 To‘lov ko‘rsatmasi:\n"
+            f"👶 Tanlangan Jins: {a} {b}\n"
+            f"📦 Tanlangan tarif: {duration}\n"
+            f"💰 To‘lov summasi: {amount} narx so'm\n\n"
+            f"💡 Quyidagi tugmalar orqali to‘lov usulini tanlang: 👇"
         )
         await callback.message.edit_text(card_text, reply_markup=builder.as_markup())
         await state.set_state(BotStates.waiting_for_payment_method)
@@ -171,11 +182,10 @@ def setup_user_handlers(dp: Dispatcher, bot: Bot, admin_id: int):
 
         if card_info:
             card_text = (
-                f"✅ Tanlangan to'lov usuli: {method.capitalize()}\n"
-                f"💳 Karta: {card_info[0]}\n"
+                f"✅ Tanlangan to'lov usuli: #{method.capitalize()}\n"
+                f"💳 Karta: ``` {card_info[0]}```\n"
                 f"👤 Egasi: {card_info[1]}\n"
-                # f"⏳ Amal qilish muddati: {card_info[2]}\n\n"
-                f"To'lov qilganingizdan so'ng, chekni (rasm yoki hujjat) yuboring."
+                f"To'lov qilganingizdan so'ng, chekni rasmini yuboring ✅"
             )
 
             builder = InlineKeyboardBuilder()
@@ -183,7 +193,7 @@ def setup_user_handlers(dp: Dispatcher, bot: Bot, admin_id: int):
             builder.button(text="Orqaga", callback_data="back_to_duration")
             builder.adjust(2)
 
-            await callback.message.edit_text(card_text, reply_markup=builder.as_markup())
+            await callback.message.edit_text(card_text, reply_markup=builder.as_markup(),parse_mode="Markdown")
             await state.set_state(BotStates.waiting_for_payment_receipt)
         else:
             await callback.message.edit_text(f"{method.capitalize()} uchun karta mavjud emas. Boshqa usulni tanlang.")
@@ -250,19 +260,16 @@ def setup_user_handlers(dp: Dispatcher, bot: Bot, admin_id: int):
         if subscription:
             duration, sub_date, expiry_date, _ = subscription
             await message.answer(
-                f"To'lov chekingiz qabul qilindi ({amount} so'm).\n"
-                f"Obuna ma'lumotlari:\n"
-                f"Tarif: {duration}\n"
-                f"Boshlangan sana: {sub_date}\n"
-                f"Tugash sanasi: {expiry_date}\n\n"
-                f"Admin tasdiqlaydi. Suhbatni qanday o'tkazmoqchisiz?",
-                reply_markup=await get_chat_preference_keyboard()
-            )
+                f"✅ To'lov chekingiz qabul qilindi ({amount} so'm).\n"
+                f"➕ Obuna ma'lumotlari:\n"
+                f"📦 Tarif: {duration}\n"
+                f"📍 Boshlangan sana: {sub_date}\n"
+                f"📌 Tugash sanasi: {expiry_date}\n\n"
+                f"⏳ Holat: Kutmoqda\n\n"
+                f"⏳ Qabul qilindi!\n\n"
+                f"To'lovingiz 5 daqiqadan 2 soatgacha bo'lgan vaqt ichida amalga oshiriladi!")
         else:
-            await message.answer(
-                f"To'lov chekingiz qabul qilindi ({amount} so'm). Admin tasdiqlaydi.\n\nSuhbatni qanday o'tkazmoqchisiz?",
-                reply_markup=await get_chat_preference_keyboard()
-            )
+            await message.answer(f"To'lov chekingiz qabul qilindi ({amount} so'm). Admin tasdiqlaydi.\n\nSuhbatni qanday o'tkazmoqchisiz?")
         await state.set_state(BotStates.waiting_for_chat_preference)
 
     @dp.callback_query(StateFilter(BotStates.waiting_for_chat_preference), F.data.startswith("chat_"))
