@@ -169,7 +169,7 @@ def setup_user_handlers(dp: Dispatcher, bot: Bot, admin_id: int):
         builder.button(text="Orqaga", callback_data="back_to_duration")
         builder.adjust(2)
         a="O'g'il" if data['gender'] == "male" else "Qiz" if data['gender'] == "female" else "Egizak"
-        b="👦" if data['gender'] == "male" else "👩" if data['gender'] == "female" else "👶"
+        b="👦" if data['gender'] == "male" else "🧒" if data['gender'] == "female" else "👶"
         print(amount)
         card_text = (
             f"💳 To‘lov ko‘rsatmasi:\n"
