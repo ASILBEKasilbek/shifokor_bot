@@ -246,7 +246,7 @@ def setup_user_handlers(dp: Dispatcher, bot: Bot, admin_id: int):
             f"Yangi to'lov:\n"
             f"Username: @{username}\n"
             f"Jins: {data.get('gender', 'Nomalum').capitalize()}\n"
-            f"Muddat: {data.get('subscription_duration', 'Noma\'lum')}\n"
+            f"Muddat: {data.get('subscription_duration', 'Nomalum')}\n"
             f"User ID: {message.from_user.id}\n"
             f"Miqdor: {amount} so'm\n"
             f"Payment ID: {payment_id}\n\n"
