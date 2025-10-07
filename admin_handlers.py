@@ -138,7 +138,7 @@ def setup_admin_handlers(dp: Dispatcher, bot: Bot):
             text = f"👥 <b>Obuna sotib olganlar (sahifa {page}/{total_pages}):</b>\n\n"
             for sub in subscribers:
                 telegram_id, subscription_date, membership_type, subscription_duration, username = sub
-                text += f"• ID: {telegram_id}\n  Username: @{username or 'Noma\'lum'}\n  Sana: {subscription_date}\n  Tur: {membership_type}\n  Muddat: {subscription_duration}\n\n"
+                text += f"• ID: {telegram_id}\n  Username: @{username or 'Nomalum'}\n  Sana: {subscription_date}\n  Tur: {membership_type}\n  Muddat: {subscription_duration}\n\n"
             text = text if subscribers else "Hozircha obunachilar yo'q."
             await callback.message.edit_text(text, reply_markup=get_paginated_keyboard(page, total_pages, "sub_page"))
             await callback.answer()
@@ -465,7 +465,7 @@ def setup_admin_handlers(dp: Dispatcher, bot: Bot):
             text = "🔍 <b>Qidiruv natijalari:</b>\n\n"
             for res in results:
                 telegram_id, subscription_date, membership_type, subscription_duration, username = res
-                text += f"• ID: {telegram_id}\n  Username: @{username or 'Noma\'lum'}\n  Sana: {subscription_date}\n  Tur: {membership_type}\n  Muddat: {subscription_duration}\n\n"
+                text += f"• ID: {telegram_id}\n  Username: @{username or 'Nomalum'}\n  Sana: {subscription_date}\n  Tur: {membership_type}\n  Muddat: {subscription_duration}\n\n"
             text = text if results else "Hech nima topilmadi."
             await message.answer(text, reply_markup=await get_admin_main_keyboard())
             await state.clear()
