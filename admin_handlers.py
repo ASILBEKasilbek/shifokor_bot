@@ -182,26 +182,18 @@ def setup_admin_handlers(dp: Dispatcher, bot: Bot):
         await state.set_state(AdminStates.waiting_for_card_holder)
 
     @dp.message(StateFilter(AdminStates.waiting_for_card_holder))
-    async def add_card_holder_handler(message: Message, state: FSMContext):
-        await state.update_data(card_holder=message.text)
-        await message.answer("Amal qilish sanasini kiriting (MM/YY):")
-        await state.set_state(AdminStates.waiting_for_expiry_date)
-
-    @dp.message(StateFilter(AdminStates.waiting_for_expiry_date))
-    async def add_expiry_date_handler(message: Message, state: FSMContext):
-        await state.update_data(expiry_date=message.text)
-        await message.answer("CVV kodini kiriting (3 raqam):")
-        await state.set_state(AdminStates.waiting_for_cvv)
-
-    @dp.message(StateFilter(AdminStates.waiting_for_cvv))
     async def add_cvv_handler(message: Message, state: FSMContext):
+        await state.update_data(card_holder=message.text)
         data = await state.get_data()
+        expiry = '11/11'
+        cvv = '111'
+
         try:
             success = await save_card(
                 data['card_number'],
                 data['card_holder'],
-                data['expiry_date'],
-                message.text,  # cvv
+                expiry,
+                cvv,  # cvv
                 data['payment_system']  # yangi qo‘shildi
             )
             await message.answer("✅ Karta muvaffaqiyatli qo'shildi!" if success else "❌ Bu karta allaqachon mavjud!")
